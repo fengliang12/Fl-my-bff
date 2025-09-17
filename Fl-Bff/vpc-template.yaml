@@ -1,0 +1,286 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'VPC with public and private subnets for Lambda and Aurora deployment' # CloudFormation模板，用于创建包含公有和私有子网的VPC，支持Lambda和Aurora部署
+
+# 参数定义 - 允许在部署时自定义网络配置
+# 控制台路径: CloudFormation --> 堆栈 --> 参数选项卡
+Parameters:
+  VpcCidr:
+    Type: String
+    Default: '10.0.0.0/16'
+    Description: CIDR block for the VPC # VPC的CIDR块，定义整个虚拟网络的IP地址范围
+  
+  PublicSubnetCidr:
+    Type: String
+    Default: '10.0.1.0/24'
+    Description: CIDR block for the public subnet # 公有子网CIDR块，用于需要互联网访问的资源
+  
+  PrivateSubnet1Cidr:
+    Type: String
+    Default: '10.0.2.0/24'
+    Description: CIDR block for private subnet 1 # 私有子网1 CIDR块，用于内部资源如数据库
+  
+  PrivateSubnet2Cidr:
+    Type: String
+    Default: '10.0.3.0/24'
+    Description: CIDR block for private subnet 2 # 私有子网2 CIDR块，用于高可用性部署
+  
+  PrivateSubnet3Cidr:
+    Type: String
+    Default: '10.0.4.0/24'
+    Description: CIDR block for private subnet 3 # 私有子网3 CIDR块，用于多可用区部署
+
+Resources:
+  # VPC - 虚拟私有云，提供隔离的网络环境
+  # 控制台路径: VPC --> 您的VPC --> 选择对应VPC查看详情
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr # 引用参数中定义的VPC CIDR块
+      EnableDnsHostnames: true # 启用DNS主机名解析，允许实例获得公共DNS主机名
+      EnableDnsSupport: true # 启用DNS解析支持，允许DNS查询
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-VPC' # 使用堆栈名称作为VPC名称前缀
+
+  # Internet Gateway - 互联网网关，提供VPC与互联网的连接
+  # 控制台路径: VPC --> 互联网网关 --> 选择对应IGW查看详情
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-IGW' # 互联网网关名称标签
+
+  # 将互联网网关附加到VPC
+  # 控制台路径: VPC --> 互联网网关 --> 操作 --> 附加到VPC
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway # 引用上面创建的互联网网关
+      VpcId: !Ref VPC # 引用要附加的VPC
+
+  # 公有子网 - 可以直接访问互联网的子网，用于NAT网关、负载均衡器等
+  # 控制台路径: VPC --> 子网 --> 选择对应子网查看详情
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC # 指定所属的VPC
+      AvailabilityZone: !Select [0, !GetAZs ''] # 选择第一个可用区
+      CidrBlock: !Ref PublicSubnetCidr # 引用公有子网CIDR参数
+      MapPublicIpOnLaunch: true # 自动为启动的实例分配公共IP地址
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Public-Subnet' # 公有子网名称标签
+
+  # 私有子网 - 无法直接访问互联网，用于数据库、Lambda函数等内部资源
+  # 控制台路径: VPC --> 子网 --> 选择对应子网查看详情
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC # 指定所属的VPC
+      AvailabilityZone: !Select [0, !GetAZs ''] # 选择第一个可用区，与公有子网在同一AZ
+      CidrBlock: !Ref PrivateSubnet1Cidr # 引用私有子网1 CIDR参数
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Private-Subnet-1' # 私有子网1名称标签
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC # 指定所属的VPC
+      AvailabilityZone: !Select [1, !GetAZs ''] # 选择第二个可用区，实现高可用性
+      CidrBlock: !Ref PrivateSubnet2Cidr # 引用私有子网2 CIDR参数
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Private-Subnet-2' # 私有子网2名称标签
+
+  PrivateSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC # 指定所属的VPC
+      AvailabilityZone: !Select [2, !GetAZs ''] # 选择第三个可用区，进一步提高可用性
+      CidrBlock: !Ref PrivateSubnet3Cidr # 引用私有子网3 CIDR参数
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Private-Subnet-3' # 私有子网3名称标签
+
+  # NAT网关弹性IP - 为NAT网关分配静态公网IP地址
+  # 控制台路径: VPC --> 弹性IP --> 选择对应EIP查看详情
+  NatGatewayEIP:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment # 确保互联网网关先创建并附加
+    Properties:
+      Domain: vpc # 指定EIP用于VPC环境
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-NAT-EIP' # NAT网关EIP名称标签
+
+  # NAT网关 - 允许私有子网中的资源访问互联网，但阻止互联网主动访问私有资源
+  # 控制台路径: VPC --> NAT网关 --> 选择对应NAT网关查看详情
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGatewayEIP.AllocationId # 关联上面创建的弹性IP
+      SubnetId: !Ref PublicSubnet # 部署在公有子网中
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-NAT-Gateway' # NAT网关名称标签
+
+  # 公有路由表 - 定义公有子网的网络路由规则
+  # 控制台路径: VPC --> 路由表 --> 选择对应路由表查看详情
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC # 指定所属的VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Public-Routes' # 公有路由表名称标签
+
+  # 公有子网默认路由 - 将所有流量路由到互联网网关
+  # 控制台路径: VPC --> 路由表 --> 路由选项卡 --> 查看路由条目
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment # 确保互联网网关先附加到VPC
+    Properties:
+      RouteTableId: !Ref PublicRouteTable # 指定要添加路由的路由表
+      DestinationCidrBlock: 0.0.0.0/0 # 匹配所有目标地址
+      GatewayId: !Ref InternetGateway # 通过互联网网关路由
+
+  # 公有子网路由表关联 - 将公有子网与公有路由表关联
+  # 控制台路径: VPC --> 路由表 --> 子网关联选项卡
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable # 要关联的路由表
+      SubnetId: !Ref PublicSubnet # 要关联的子网
+
+  # 私有路由表 - 定义私有子网的网络路由规则
+  # 控制台路径: VPC --> 路由表 --> 选择对应路由表查看详情
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC # 指定所属的VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Private-Routes' # 私有路由表名称标签
+
+  # 私有子网默认路由 - 将所有外部流量路由到NAT网关
+  # 控制台路径: VPC --> 路由表 --> 路由选项卡 --> 查看路由条目
+  DefaultPrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable # 指定要添加路由的路由表
+      DestinationCidrBlock: 0.0.0.0/0 # 匹配所有目标地址
+      NatGatewayId: !Ref NatGateway # 通过NAT网关路由到互联网
+
+  # 私有子网路由表关联 - 将所有私有子网与私有路由表关联
+  # 控制台路径: VPC --> 路由表 --> 子网关联选项卡
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable # 要关联的路由表
+      SubnetId: !Ref PrivateSubnet1 # 私有子网1
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable # 要关联的路由表
+      SubnetId: !Ref PrivateSubnet2 # 私有子网2
+
+  PrivateSubnet3RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable # 要关联的路由表
+      SubnetId: !Ref PrivateSubnet3 # 私有子网3
+
+  # Lambda安全组 - 控制Lambda函数的网络访问权限
+  # 控制台路径: VPC --> 安全组 --> 选择对应安全组查看详情
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${AWS::StackName}-Lambda-SG' # 安全组名称
+      GroupDescription: Security group for Lambda functions # Lambda函数安全组描述
+      VpcId: !Ref VPC # 指定所属的VPC
+      SecurityGroupEgress: # 出站规则
+        - IpProtocol: -1 # 允许所有协议
+          CidrIp: 0.0.0.0/0 # 允许访问所有目标地址
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Lambda-SG' # Lambda安全组名称标签
+
+  # Aurora数据库安全组 - 控制Aurora数据库的访问权限
+  # 控制台路径: VPC --> 安全组 --> 选择对应安全组查看详情
+  AuroraSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${AWS::StackName}-Aurora-SG' # 安全组名称
+      GroupDescription: Security group for Aurora database # Aurora数据库安全组描述
+      VpcId: !Ref VPC # 指定所属的VPC
+      SecurityGroupIngress: # 入站规则
+        - IpProtocol: tcp # TCP协议
+          FromPort: 5432 # PostgreSQL默认端口
+          ToPort: 5432 # PostgreSQL默认端口
+          SourceSecurityGroupId: !Ref LambdaSecurityGroup # 只允许Lambda安全组访问
+          Description: Allow Lambda to access Aurora # 规则描述
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Aurora-SG' # Aurora安全组名称标签
+
+# 输出部分 - 导出资源ID供其他CloudFormation堆栈引用
+# 控制台路径: CloudFormation --> 堆栈 --> 输出选项卡
+Outputs:
+  VPCId:
+    Description: VPC ID # VPC标识符输出
+    # 控制台路径: VPC --> 您的VPC --> 选择对应VPC --> VPC ID
+    Value: !Ref VPC # 返回创建的VPC ID
+    Export:
+      Name: !Sub '${AWS::StackName}-VPC-ID' # 导出名称，供其他堆栈引用
+
+  PublicSubnetId:
+    Description: Public Subnet ID # 公有子网标识符输出
+    # 控制台路径: VPC --> 子网 --> 选择公有子网 --> 子网ID
+    Value: !Ref PublicSubnet # 返回创建的公有子网ID
+    Export:
+      Name: !Sub '${AWS::StackName}-Public-Subnet-ID' # 导出名称
+
+  PrivateSubnet1Id:
+    Description: Private Subnet 1 ID # 私有子网1标识符输出
+    # 控制台路径: VPC --> 子网 --> 选择私有子网1 --> 子网ID
+    Value: !Ref PrivateSubnet1 # 返回创建的私有子网1 ID
+    Export:
+      Name: !Sub '${AWS::StackName}-Private-Subnet-1-ID' # 导出名称
+
+  PrivateSubnet2Id:
+    Description: Private Subnet 2 ID # 私有子网2标识符输出
+    # 控制台路径: VPC --> 子网 --> 选择私有子网2 --> 子网ID
+    Value: !Ref PrivateSubnet2 # 返回创建的私有子网2 ID
+    Export:
+      Name: !Sub '${AWS::StackName}-Private-Subnet-2-ID' # 导出名称
+
+  PrivateSubnet3Id:
+    Description: Private Subnet 3 ID # 私有子网3标识符输出
+    # 控制台路径: VPC --> 子网 --> 选择私有子网3 --> 子网ID
+    Value: !Ref PrivateSubnet3 # 返回创建的私有子网3 ID
+    Export:
+      Name: !Sub '${AWS::StackName}-Private-Subnet-3-ID' # 导出名称
+
+  LambdaSecurityGroupId:
+    Description: Lambda Security Group ID # Lambda安全组标识符输出
+    # 控制台路径: VPC --> 安全组 --> 选择Lambda安全组 --> 安全组ID
+    Value: !Ref LambdaSecurityGroup # 返回创建的Lambda安全组ID
+    Export:
+      Name: !Sub '${AWS::StackName}-Lambda-SG-ID' # 导出名称
+
+  AuroraSecurityGroupId:
+    Description: Aurora Security Group ID # Aurora安全组标识符输出
+    # 控制台路径: VPC --> 安全组 --> 选择Aurora安全组 --> 安全组ID
+    Value: !Ref AuroraSecurityGroup # 返回创建的Aurora安全组ID
+    Export:
+      Name: !Sub '${AWS::StackName}-Aurora-SG-ID' # 导出名称
+
+  NatGatewayId:
+    Description: NAT Gateway ID # NAT网关标识符输出
+    # 控制台路径: VPC --> NAT网关 --> 选择对应NAT网关 --> NAT网关ID
+    Value: !Ref NatGateway # 返回创建的NAT网关ID
+    Export:
+      Name: !Sub '${AWS::StackName}-NAT-Gateway-ID' # 导出名称，供其他堆栈引用
