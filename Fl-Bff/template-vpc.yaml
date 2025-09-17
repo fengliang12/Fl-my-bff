@@ -1,0 +1,228 @@
+# CloudFormation模板格式版本，指定使用2010-09-09版本
+# 控制台路径: CloudFormation --> 堆栈 --> 创建堆栈 --> 模板格式版本
+AWSTemplateFormatVersion: "2010-09-09"
+# 使用AWS SAM转换，将SAM语法转换为标准CloudFormation
+# 控制台路径: CloudFormation --> 堆栈 --> 模板 --> Transform部分
+Transform: AWS::Serverless-2016-10-31
+# 模板描述，说明这是使用现有VPC配置的FL BFF应用
+Description: "FL BFF Application using existing VPC Configuration"
+
+# 参数部分，定义模板的输入参数
+# 控制台路径: CloudFormation --> 堆栈 --> 参数选项卡
+Parameters:
+  # 数据库主机地址参数
+  DatabaseHost:
+    Type: String # 参数类型为字符串
+    # 控制台路径: RDS --> 数据库 --> 实例标识符 --> 连接和安全性 --> 终端节点
+    Description: PostgreSQL database host # 参数描述
+    Default: fl-bff-databse-instance-1.cw9qwc4sm80c.us-east-1.rds.amazonaws.com # 默认的RDS实例地址
+
+  # 数据库端口参数
+  DatabasePort:
+    Type: String # 参数类型为字符串
+    # 控制台路径: RDS --> 数据库 --> 实例标识符 --> 连接和安全性 --> 端口
+    Description: PostgreSQL database port # 参数描述
+    Default: "5432" # PostgreSQL默认端口5432
+
+  # 数据库名称参数
+  DatabaseName:
+    Type: String # 参数类型为字符串
+    # 控制台路径: RDS --> 数据库 --> 实例标识符 --> 配置 --> 数据库名称
+    Description: PostgreSQL database name # 参数描述
+    Default: postgres # 默认数据库名
+
+  # 数据库用户名参数
+  DatabaseUser:
+    Type: String # 参数类型为字符串
+    # 控制台路径: RDS --> 数据库 --> 实例标识符 --> 配置 --> 主用户名
+    Description: PostgreSQL database user # 参数描述
+    Default: root # 默认用户名
+
+  # 数据库密码参数
+  DatabasePassword:
+    Type: String # 参数类型为字符串
+    # 控制台路径: RDS --> 数据库 --> 实例标识符 --> 修改 --> 数据库选项 --> 新密码
+    Description: PostgreSQL database password # 参数描述
+    NoEcho: true # 不在控制台显示密码值，保护敏感信息
+    Default: xxxxxxxxx # 密码 7=
+
+  # 现有VPC的ID参数
+  VpcId:
+    Type: String # 参数类型为字符串
+    # 控制台路径: VPC --> 您的VPC --> vpc-019dc15b736c3a72b
+    Default: "vpc-019dc15b736c3a72b" # 现有VPC的ID
+    Description: "Existing VPC ID" # 参数描述
+
+  # 现有私有子网1的ID参数
+  PrivateSubnet1Id:
+    Type: String # 参数类型为字符串
+    # 控制台路径: VPC --> 子网 --> subnet-0015d272e6a9780fc (私有子网)
+    Default: "subnet-0015d272e6a9780fc" # 私有子网1的ID
+    Description: "Existing Private Subnet 1 ID" # 参数描述
+
+  # 现有私有子网2的ID参数
+  PrivateSubnet2Id:
+    Type: String # 参数类型为字符串
+    # 控制台路径: VPC --> 子网 --> subnet-059ff661e98af5fd0 (私有子网)
+    Default: "subnet-059ff661e98af5fd0" # 私有子网2的ID
+    Description: "Existing Private Subnet 2 ID" # 参数描述
+
+  # 现有私有子网3的ID参数
+  PrivateSubnet3Id:
+    Type: String # 参数类型为字符串
+    # 控制台路径: VPC --> 子网 --> subnet-08229e02099de6f0c (私有子网)
+    Default: "subnet-08229e02099de6f0c" # 私有子网3的ID
+    Description: "Existing Private Subnet 3 ID" # 参数描述
+
+  # 现有安全组的ID参数
+  SecurityGroupId:
+    Type: String # 参数类型为字符串
+    # 控制台路径: EC2 --> 安全组 --> sg-0ef5ca38e76692f56
+    Default: "sg-0ef5ca38e76692f56" # 默认安全组的ID
+    Description: "Existing Security Group ID (default)" # 参数描述
+
+# 全局配置部分，定义所有函数和API的默认设置
+Globals:
+  # 函数的全局配置
+  Function:
+    Timeout: 30 # 函数超时时间30秒
+    MemorySize: 1024 # 函数内存大小1024MB
+    Runtime: nodejs20.x # 运行时环境Node.js 20.x
+    Architectures: ["arm64"] # 使用ARM64架构
+    # 环境变量配置
+    Environment:
+      Variables: # 环境变量列表
+        NODE_OPTIONS: "--enable-source-maps" # 启用源码映射
+  # API Gateway的全局配置
+  Api:
+    OpenApiVersion: "2.0" # OpenAPI版本
+    # CORS跨域配置
+    Cors:
+      AllowMethods: "'*'" # 允许所有HTTP方法
+      AllowHeaders: "'Content-Type,Authorization'" # 允许的请求头
+      AllowOrigin: "'*'" # 允许所有来源
+      MaxAge: 600 # 预检请求缓存时间600秒
+
+# 资源部分，定义要创建的AWS资源
+Resources:
+  # API Gateway资源
+  Api:
+    Type: AWS::Serverless::Api # SAM API类型
+    Properties: # API属性
+      # 部署阶段名称为dev
+      # 控制台路径: API Gateway --> API --> fl-bff-existing-vpc (lxxmsxrn7j) --> 阶段 --> dev
+      StageName: dev
+      # 支持的二进制媒体类型
+      # 控制台路径: API Gateway --> API --> fl-bff-existing-vpc (lxxmsxrn7j) --> API 设置 --> 二进制媒体类型
+      BinaryMediaTypes:
+        - "image/*" # 支持所有图片类型
+        - "multipart/form-data" # 支持表单数据
+      # 认证配置
+      # 控制台路径: API Gateway --> API --> fl-bff-existing-vpc (lxxmsxrn7j) --> 授权方 --> 默认授权方
+      Auth:
+        DefaultAuthorizer: NONE # 默认不使用授权器
+
+  # 带VPC配置的Lambda函数
+  NestjsFunction:
+    Type: AWS::Serverless::Function # SAM函数类型
+    # 控制台路径: Lambda --> 函数 --> fl-bff-existing-vpc-NestjsFunction
+    Properties: # 函数属性
+      Handler: lambda.handler # 函数入口点
+      # 控制台路径: Lambda --> 函数 --> 代码 --> 运行时设置 --> 处理程序
+      CodeUri: dist/ # 代码位置，dist目录
+      # 控制台路径: Lambda --> 函数 --> 代码 --> 代码源
+      MemorySize: 1024 # 函数内存大小1024MB
+      # 控制台路径: Lambda --> 函数 --> 配置 --> 常规配置 --> 内存
+      Timeout: 30 # 函数超时时间30秒
+      # 控制台路径: Lambda --> 函数 --> 配置 --> 常规配置 --> 超时
+      # VPC配置，将函数部署到指定VPC中
+      # 控制台路径: Lambda --> 函数 --> 配置 --> VPC
+      VpcConfig:
+        # 安全组ID列表
+        # 控制台路径: EC2 --> 安全组 --> sg-0ef5ca38e76692f56
+        SecurityGroupIds:
+          - !Ref SecurityGroupId # 引用安全组参数
+        # 子网ID列表，函数将部署在这些子网中
+        # 控制台路径: VPC --> 子网 --> 私有子网列表
+        SubnetIds:
+          - !Ref PrivateSubnet1Id # 引用私有子网1参数
+          - !Ref PrivateSubnet2Id # 引用私有子网2参数
+          - !Ref PrivateSubnet3Id # 引用私有子网3参数
+
+      # 环境变量配置
+      # 控制台路径: Lambda --> 函数 --> 配置 --> 环境变量
+      Environment:
+        Variables: # 环境变量列表
+          NODE_OPTIONS: "--enable-source-maps" # 启用源码映射
+          DB_HOST: !Ref DatabaseHost # 引用数据库主机参数
+          DB_PORT: !Ref DatabasePort # 引用数据库端口参数
+          DB_NAME: !Ref DatabaseName # 引用数据库名称参数
+          DB_USER: !Ref DatabaseUser # 引用数据库用户参数
+          DB_PASSWORD: !Ref DatabasePassword # 引用数据库密码参数
+          DB_TYPE: postgres # 数据库类型为PostgreSQL
+          DB_SYNCHRONIZE: "true" # 启用数据库同步
+
+      # IAM策略配置
+      # 控制台路径: Lambda --> 函数 --> 配置 --> 权限 --> 执行角色
+      Policies:
+        # VPC访问执行角色
+        # 控制台路径: IAM --> 策略 --> AWSLambdaVPCAccessExecutionRole
+        - AWSLambdaVPCAccessExecutionRole
+        # 基本执行角色
+        # 控制台路径: IAM --> 策略 --> AWSLambdaBasicExecutionRole
+        - AWSLambdaBasicExecutionRole
+
+      # 事件配置，定义触发函数的事件
+      # 控制台路径: Lambda --> 函数 --> 配置 --> 触发器
+      Events:
+        # API Gateway代理事件，处理所有路径
+        ApiEvent:
+          Type: Api # API Gateway事件类型
+          # 控制台路径: API Gateway --> API --> fl-bff-existing-vpc (lxxmsxrn7j) --> 资源
+          Properties: # 事件属性
+            Path: /{proxy+} # 代理路径，匹配所有子路径
+            # 控制台路径: API Gateway --> API --> 资源 --> /{proxy+}
+            Method: ANY # 支持所有HTTP方法
+            RestApiId: !Ref Api # 引用API Gateway资源
+            # 认证配置
+            Auth:
+              Authorizer: NONE # 不使用授权器
+
+# 输出部分，定义模板执行后的输出值
+# 控制台路径: CloudFormation --> 堆栈 --> fl-bff-existing-vpc --> 输出选项卡
+Outputs:
+  # API Gateway端点URL输出
+  ApiEndpoint:
+    Description: API Gateway endpoint URL # 输出描述
+    # 控制台路径: API Gateway --> API --> fl-bff-existing-vpc (lxxmsxrn7j) --> 阶段 --> dev --> 调用URL
+    Value: !Sub "https://${Api}.execute-api.${AWS::Region}.amazonaws.com/dev" # 构建API端点URL
+    Export: # 导出配置
+      # 控制台路径: CloudFormation --> 导出 --> fl-bff-existing-vpc-ApiEndpoint
+      Name: !Sub "${AWS::StackName}-ApiEndpoint" # 导出名称
+
+  # Lambda函数ARN输出
+  FunctionArn:
+    Description: Lambda Function ARN # 输出描述
+    # 控制台路径: Lambda --> 函数 --> fl-bff-existing-vpc-NestjsFunction --> 函数ARN
+    Value: !GetAtt NestjsFunction.Arn # 获取Lambda函数的ARN属性
+    Export: # 导出配置，允许其他堆栈引用
+      Name: !Sub "${AWS::StackName}-FunctionArn" # 导出名称，使用堆栈名称前缀
+
+  # VPC ID输出
+  VpcId:
+    Description: VPC ID # 输出描述
+    # 控制台路径: VPC --> 您的VPC --> vpc-019dc15b736c3a72b --> VPC ID
+    Value: !Ref VpcId # 引用VPC ID参数
+    Export: # 导出配置
+      Name: !Sub "${AWS::StackName}-VpcId" # 导出名称
+
+  # 私有子网ID列表输出
+  PrivateSubnets:
+    Description: Private Subnet IDs # 输出描述
+    # 控制台路径: VPC --> 子网 --> 筛选私有子网
+    Value: !Join [
+        ",",
+        [!Ref PrivateSubnet1Id, !Ref PrivateSubnet2Id, !Ref PrivateSubnet3Id],
+      ] # 使用Join函数连接所有私有子网ID
+    Export: # 导出配置
+      Name: !Sub "${AWS::StackName}-PrivateSubnets" # 导出名称
