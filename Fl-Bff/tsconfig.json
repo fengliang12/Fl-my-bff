@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2024",
+    "noImplicitAny": true,
+    "noImplicitThis": true,
+    "experimentalDecorators": true,
+    "esModuleInterop": true,
+    "module": "NodeNext",
+    "moduleResolution": "nodenext",
+    "allowSyntheticDefaultImports": true,
+    "skipLibCheck": true,
+    "typeRoots": ["typings"],
+    "baseUrl": "./",
+    "outDir": "./dist",
+    "paths": {
+      "@interfaces/*": ["interface/*"],
+      "@config/*": ["config/*"],
+      "@middlewares/*": ["middlewares/*"]
+    }
+  },
+  "include": ["**/*"], // 确保包含 typings 目录
+  "exclude": ["node_modules"] // 排除 node_modules 避免第三方库类型错误
+}

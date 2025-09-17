@@ -1,0 +1,99 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Parameters:
+  DatabaseHost:
+    Type: String
+    Description: PostgreSQL database host
+    Default: your-db-host.amazonaws.com
+  
+  DatabasePort:
+    Type: String
+    Description: PostgreSQL database port
+    Default: "5432"
+  
+  DatabaseName:
+    Type: String
+    Description: PostgreSQL database name
+    Default: your-database-name
+  
+  DatabaseUser:
+    Type: String
+    Description: PostgreSQL database user
+    Default: your-db-user
+  
+  DatabasePassword:
+    Type: String
+    Description: PostgreSQL database password
+    NoEcho: true
+    Default: your-db-password
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 1024
+    Runtime: nodejs20.x
+    Architectures: ['arm64']
+    Environment:
+      Variables:
+        NODE_OPTIONS: '--enable-source-maps'
+  Api:
+    OpenApiVersion: '2.0'
+    Cors:
+      AllowMethods: "'*'"
+      AllowHeaders: "'Content-Type,Authorization'"
+      AllowOrigin: "'*'"
+      MaxAge: 600
+
+Resources:
+  Api:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: dev
+      BinaryMediaTypes:
+        - 'image/*'
+        - 'multipart/form-data'
+      Auth:
+        DefaultAuthorizer: NONE
+
+  NestjsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: lambda.handler
+      CodeUri: s3://fl-bff-lambda-deployment-1718075595/lambda-package.zip
+      MemorySize: 1024
+      Timeout: 30
+      Environment:
+        Variables:
+          NODE_OPTIONS: '--enable-source-maps'
+          DB_HOST: !Ref DatabaseHost
+          DB_PORT: !Ref DatabasePort
+          DB_NAME: !Ref DatabaseName
+          DB_USER: !Ref DatabaseUser
+          DB_PASSWORD: !Ref DatabasePassword
+          DB_TYPE: postgres
+          DB_SYNCHRONIZE: 'true'
+      Policies:
+        - AWSLambdaBasicExecutionRole
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+            RestApiId: !Ref Api
+            Auth:
+              Authorizer: NONE
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub 'https://${Api}.execute-api.${AWS::Region}.amazonaws.com/dev'
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiEndpoint'
+  
+  FunctionArn:
+    Description: Lambda Function ARN
+    Value: !GetAtt NestjsFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-FunctionArn'
